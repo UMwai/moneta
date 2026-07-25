@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?OFX OFXHEADER="200" VERSION="211" SECURITY="NONE" OLDFILEUID="NONE" NEWFILEUID="NONE"?>
+<OFX>
+  <CREDITCARDMSGSRSV1>
+    <CCSTMTTRNRS>
+      <TRNUID>0</TRNUID>
+      <CCSTMTRS>
+        <CURDEF>EUR</CURDEF>
+        <CCACCTFROM>
+          <ACCTID>XXXXXXXXXXXX4321</ACCTID>
+        </CCACCTFROM>
+        <BANKTRANLIST>
+          <DTSTART>20240201</DTSTART>
+          <DTEND>20240229</DTEND>
+          <STMTTRN>
+            <TRNTYPE>DEBIT</TRNTYPE>
+            <DTPOSTED>20240214</DTPOSTED>
+            <TRNAMT>-59.99</TRNAMT>
+            <FITID>CC-0001</FITID>
+            <NAME>CAFE &amp; BAR</NAME>
+          </STMTTRN>
+          <STMTTRN>
+            <TRNTYPE>CREDIT</TRNTYPE>
+            <DTPOSTED>20240220</DTPOSTED>
+            <TRNAMT>25.00</TRNAMT>
+            <FITID>CC-0002</FITID>
+            <MEMO>REFUND</MEMO>
+          </STMTTRN>
+        </BANKTRANLIST>
+        <LEDGERBAL>
+          <BALAMT>-1034.99</BALAMT>
+          <DTASOF>20240229</DTASOF>
+        </LEDGERBAL>
+      </CCSTMTRS>
+    </CCSTMTTRNRS>
+  </CREDITCARDMSGSRSV1>
+</OFX>

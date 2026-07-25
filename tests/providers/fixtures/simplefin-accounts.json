@@ -1,0 +1,55 @@
+{
+  "errors": [],
+  "accounts": [
+    {
+      "org": {
+        "domain": "mybank.example",
+        "name": "My Bank",
+        "sfin-url": "https://bridge.example.com/simplefin"
+      },
+      "id": "ACT-checking-001",
+      "name": "Everyday Checking",
+      "currency": "USD",
+      "balance": "1234.56",
+      "available-balance": "1200.00",
+      "balance-date": 1710460800,
+      "transactions": [
+        {
+          "id": "TXN-1",
+          "posted": 1710374400,
+          "amount": "-33.00",
+          "description": "BLUE BOTTLE COFFEE",
+          "payee": "Blue Bottle"
+        },
+        {
+          "id": "TXN-2",
+          "posted": 1710460800,
+          "amount": "2500.00",
+          "description": "ACME PAYROLL",
+          "pending": false
+        }
+      ]
+    },
+    {
+      "org": {
+        "domain": "mybank.example",
+        "name": "My Bank"
+      },
+      "id": "ACT-visa-002",
+      "name": "Visa Signature Card",
+      "currency": "USD",
+      "balance": "-450.25",
+      "balance-date": 1710460800,
+      "transactions": [
+        {
+          "id": "TXN-3",
+          "posted": 1710288000,
+          "amount": "-19.99",
+          "description": "STREAMING SVC",
+          "memo": "monthly",
+          "pending": true
+        }
+      ]
+    }
+  ]
+}
