@@ -24,6 +24,12 @@ import type {
 } from "@/lib/types";
 import { CredentialsError, ProviderError, safeMessage } from "./errors";
 import { decimalStringToMinor, normalizeCurrency } from "./money";
+import {
+  defaultLookup,
+  guardedFetch,
+  type FetchLike,
+  type LookupLike,
+} from "./netguard";
 
 // ---------- credentials ----------
 
@@ -183,7 +189,7 @@ export function unixToIsoDate(seconds: number): string {
 
 // ---------- HTTP ----------
 
-export type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
+export type { FetchLike };
 
 export interface SimpleFinProviderOptions {
   fetch?: FetchLike;
@@ -191,6 +197,8 @@ export interface SimpleFinProviderOptions {
   initialLookbackDays?: number;
   /** injected for deterministic cursor assertions in tests */
   now?: () => Date;
+  /** injected so the egress guard can be exercised without touching DNS */
+  lookup?: LookupLike;
 }
 
 export interface SimpleFinProvider extends BankProvider {
@@ -209,8 +217,8 @@ export function splitAccessUrl(accessUrl: string): { baseUrl: string; authorizat
   } catch {
     throw new CredentialsError("simplefin", "SimpleFIN access URL is not a valid URL.");
   }
-  if (url.protocol !== "https:" && url.protocol !== "http:") {
-    throw new CredentialsError("simplefin", "SimpleFIN access URL must be http(s).");
+  if (url.protocol !== "https:") {
+    throw new CredentialsError("simplefin", "SimpleFIN access URL must be https.");
   }
   const { username, password } = url;
   url.username = "";
@@ -226,7 +234,7 @@ export function decodeSetupToken(setupToken: string): string {
   const compact = setupToken.trim().replace(/\s+/g, "");
   if (!compact) throw new CredentialsError("simplefin", "SimpleFIN setup token is empty.");
   const decoded = Buffer.from(compact, "base64").toString("utf8").trim();
-  if (!/^https?:\/\//i.test(decoded)) {
+  if (!/^https:\/\//i.test(decoded)) {
     throw new CredentialsError(
       "simplefin",
       "SimpleFIN setup token did not decode to a claim URL — copy it again from your bridge.",
@@ -239,6 +247,11 @@ const DAY_SECONDS = 24 * 60 * 60;
 
 export function createSimpleFinProvider(options: SimpleFinProviderOptions = {}): SimpleFinProvider {
   const fetchImpl: FetchLike = options.fetch ?? ((input, init) => fetch(input, init));
+  const guard = {
+    provider: "simplefin",
+    fetch: fetchImpl,
+    lookup: options.lookup ?? defaultLookup,
+  };
   const now = options.now ?? (() => new Date());
   const initialLookbackSeconds = options.initialLookbackDays
     ? options.initialLookbackDays * DAY_SECONDS
@@ -248,12 +261,17 @@ export function createSimpleFinProvider(options: SimpleFinProviderOptions = {}):
     const claimUrl = decodeSetupToken(setupToken);
     let response: Response;
     try {
-      response = await fetchImpl(claimUrl, {
-        method: "POST",
-        headers: { "Content-Length": "0" },
-      });
+      response = await guardedFetch(
+        claimUrl,
+        { method: "POST", headers: { "Content-Length": "0" } },
+        guard,
+      );
     } catch (err) {
-      throw new ProviderError("simplefin", `Could not reach the SimpleFIN bridge: ${safeMessage(err, "network error")}`, "network_error");
+      // The guard's own refusals are already user-safe and more specific than
+      // "unreachable"; anything else is a transport error whose message could
+      // quote the claim URL, so none of it is carried over.
+      if (err instanceof ProviderError) throw err;
+      throw new ProviderError("simplefin", "Could not reach the SimpleFIN bridge.", "network_error");
     }
     if (!response.ok) {
       throw new ProviderError(
@@ -265,7 +283,7 @@ export function createSimpleFinProvider(options: SimpleFinProviderOptions = {}):
       );
     }
     const accessUrl = (await response.text()).trim();
-    if (!/^https?:\/\//i.test(accessUrl)) {
+    if (!/^https:\/\//i.test(accessUrl)) {
       throw new ProviderError("simplefin", "SimpleFIN bridge did not return an access URL.", "claim_failed");
     }
     return accessUrl;
@@ -291,9 +309,10 @@ export function createSimpleFinProvider(options: SimpleFinProviderOptions = {}):
 
     let response: Response;
     try {
-      response = await fetchImpl(url.toString(), { method: "GET", headers });
+      response = await guardedFetch(url.toString(), { method: "GET", headers }, guard);
     } catch (err) {
-      throw new ProviderError("simplefin", `Could not reach the SimpleFIN bridge: ${safeMessage(err, "network error")}`, "network_error");
+      if (err instanceof ProviderError) throw err;
+      throw new ProviderError("simplefin", "Could not reach the SimpleFIN bridge.", "network_error");
     }
     if (response.status === 401 || response.status === 403) {
       throw new ProviderError(

@@ -3,9 +3,12 @@ import { randomUUID } from "node:crypto";
 import { getDb, migrate, type Db } from "@/db";
 import { flattenCategories } from "@/lib/domain/seed";
 import {
+  bumpSessionVersion,
   createUser,
   countUsers,
   findUserByUsername,
+  getSessionVersion,
+  type UserRecord,
 } from "@/lib/domain/repos/users";
 import {
   listAccounts as listAccountsRepo,
@@ -55,6 +58,7 @@ export interface StoredUser {
   id: string;
   username: string;
   passwordHash: string;
+  sessionVersion: number;
 }
 
 export interface TransactionFilters {
@@ -76,6 +80,10 @@ export interface Store {
   hasUser(): Promise<boolean>;
   createUser(username: string, passwordHash: string): Promise<StoredUser>;
   findUserByUsername(username: string): Promise<StoredUser | null>;
+  /** Current session version, or null if the user no longer exists. */
+  sessionVersion(userId: string): Promise<number | null>;
+  /** Revokes every session already issued to this user. */
+  revokeSessions(userId: string): Promise<void>;
   listAccounts(): Promise<Account[]>;
   listTransactions(
     filters: TransactionFilters,
@@ -107,6 +115,15 @@ export interface Store {
   syncConnection(id: string): Promise<SyncOutcome>;
   /** Lands an already-parsed CSV/OFX batch; returns how many rows were new. */
   importTransactions(batch: ImportBatch): Promise<{ imported: number }>;
+}
+
+function toStoredUser(user: UserRecord): StoredUser {
+  return {
+    id: user.id,
+    username: user.username,
+    passwordHash: user.passwordHash,
+    sessionVersion: user.sessionVersion,
+  };
 }
 
 /**
@@ -143,14 +160,20 @@ export class DrizzleStore implements Store {
       throw new Error("A user already exists");
     }
     const user = createUser(db, { username, passwordHash });
-    return { id: user.id, username: user.username, passwordHash: user.passwordHash };
+    return toStoredUser(user);
   }
 
   async findUserByUsername(username: string): Promise<StoredUser | null> {
     const user = findUserByUsername(this.db(), username);
-    return user
-      ? { id: user.id, username: user.username, passwordHash: user.passwordHash }
-      : null;
+    return user ? toStoredUser(user) : null;
+  }
+
+  async sessionVersion(userId: string): Promise<number | null> {
+    return getSessionVersion(this.db(), userId);
+  }
+
+  async revokeSessions(userId: string): Promise<void> {
+    bumpSessionVersion(this.db(), userId);
   }
 
   async listAccounts(): Promise<Account[]> {
@@ -312,7 +335,7 @@ export class InMemoryStore implements Store {
     if (this.users.length > 0) {
       throw new Error("A user already exists");
     }
-    const user = { id: randomUUID(), username, passwordHash };
+    const user = { id: randomUUID(), username, passwordHash, sessionVersion: 1 };
     this.users.push(user);
     return clone(user);
   }
@@ -323,6 +346,15 @@ export class InMemoryStore implements Store {
       (candidate) => candidate.username.toLocaleLowerCase() === normalized,
     );
     return user ? clone(user) : null;
+  }
+
+  async sessionVersion(userId: string): Promise<number | null> {
+    return this.users.find((user) => user.id === userId)?.sessionVersion ?? null;
+  }
+
+  async revokeSessions(userId: string): Promise<void> {
+    const user = this.users.find((candidate) => candidate.id === userId);
+    if (user) user.sessionVersion += 1;
   }
 
   async listAccounts(): Promise<Account[]> {

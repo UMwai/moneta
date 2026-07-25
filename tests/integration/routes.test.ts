@@ -21,12 +21,18 @@ vi.hoisted(() => {
 });
 
 // Route handlers run outside a request scope here, so next/headers cookies()
-// is unavailable; only the auth gate needs stubbing, not the rest of the module.
+// is unavailable; only the cookie read needs stubbing, not the rest of the
+// module — the session-version check against the user row stays live, so the
+// claims below are filled in from the real row created in beforeAll.
+const { sessionUser } = vi.hoisted(() => ({
+  sessionUser: { id: "user_test", username: "ada", sessionVersion: 1 },
+}));
+
 vi.mock("@/lib/auth/session", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/auth/session")>();
   return {
     ...actual,
-    requireSession: vi.fn(async () => ({ id: "user_test", username: "ada" })),
+    requireSession: vi.fn(async () => sessionUser),
   };
 });
 
@@ -69,9 +75,14 @@ async function body<T>(response: Response): Promise<T> {
 describe("integration: REST handlers over the real store", () => {
   let bank: FakeBank;
 
-  beforeAll(() => {
+  beforeAll(async () => {
     bank = createFakeBank();
     setProviderResolver(() => bank);
+
+    const { store } = await import("@/lib/server/store");
+    const user = await store.createUser("ada", "hash:argon2id");
+    sessionUser.id = user.id;
+    sessionUser.sessionVersion = user.sessionVersion;
   });
 
   afterAll(() => {
@@ -237,6 +248,25 @@ describe("integration: REST handlers over the real store", () => {
     expect(response.status).toBe(400);
     expect(await body(response)).toMatchObject({
       error: { code: "INVALID_CSV" },
+    });
+  });
+
+  it("refuses an oversized upload from its declared length", async () => {
+    const form = new FormData();
+    form.set("file", new File(["Date,Description,Amount"], "huge.csv"));
+    const response = await importFile(
+      new Request("http://localhost/api/import/csv", {
+        method: "POST",
+        body: form,
+        // The check has to happen before formData() buffers the body, so the
+        // header is what it acts on rather than the parsed file.
+        headers: { "content-length": String(5 * 1024 * 1024 + 1) },
+      }),
+    );
+
+    expect(response.status).toBe(413);
+    expect(await body(response)).toMatchObject({
+      error: { code: "CSV_TOO_LARGE" },
     });
   });
 

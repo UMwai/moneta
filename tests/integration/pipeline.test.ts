@@ -1,6 +1,6 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
-import { closeDb, createTestDb, type Db } from "@/db";
+import { closeDb, createTestDb, schema, type Db } from "@/db";
 import { periodOf, todayISO } from "@/lib/domain/dates";
 import { getCredentialsEnc } from "@/lib/domain/repos";
 import { setProviderResolver } from "@/lib/server/providers";
@@ -135,6 +135,31 @@ describe("integration: connection -> sync -> ledger -> insights", () => {
     const [failed] = await store.listConnections();
     expect(failed.status).toBe("error");
     expect(failed.lastSyncAt).toBeNull();
+  });
+
+  it("never parks a provider's raw error text in last_error", async () => {
+    const connection = await store.createConnection(
+      "simplefin",
+      encryptCredentials(GOOD_CREDENTIALS),
+    );
+    // What undici throws when handed a SimpleFIN access URL it cannot parse:
+    // the message quotes the URL, userinfo included, and last_error is stored
+    // in the clear.
+    bank.failNextSyncWith(
+      new TypeError(
+        "Failed to parse URL from https://user:s3cret@bridge.example.com/simplefin",
+      ),
+    );
+
+    await expect(store.syncConnection(connection.id)).rejects.toBeInstanceOf(
+      SyncFailedError,
+    );
+
+    const stored = db
+      .select({ lastError: schema.connections.lastError })
+      .from(schema.connections)
+      .get();
+    expect(stored?.lastError).toBe("The provider could not be reached.");
   });
 
   describe("after a sync", () => {

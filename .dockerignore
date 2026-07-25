@@ -1,0 +1,13 @@
+# Secrets and local state must never reach the build context or a layer.
+.env*
+data/
+*.db
+*.db-shm
+*.db-wal
+
+.git
+.github
+node_modules
+.next
+coverage
+tests

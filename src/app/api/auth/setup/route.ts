@@ -41,7 +41,11 @@ export async function POST(request: Request): Promise<Response> {
           "A user has already been configured",
         );
       }
-      await setSession({ id: user.id, username: user.username });
+      await setSession({
+        id: user.id,
+        username: user.username,
+        sessionVersion: user.sessionVersion,
+      });
       return { ok: true as const };
     },
     { authenticated: false, status: 201 },

@@ -29,7 +29,11 @@ import {
   deleteTransactionsByExternalIds,
   upsertProviderTransaction,
 } from "@/lib/domain/repos/transactions";
-import { CredentialsError, safeMessage } from "@/lib/providers/errors";
+import {
+  CredentialsError,
+  safeMessage,
+  safeStatusMessage,
+} from "@/lib/providers/errors";
 import { runPostProcessing } from "@/lib/server/pipeline";
 import { resolveProvider } from "@/lib/server/providers";
 import { decryptCredentials } from "@/lib/server/secrets";
@@ -113,7 +117,11 @@ export async function syncConnection(
   } catch (error) {
     const status =
       error instanceof CredentialsError ? "reauth_required" : "error";
-    const message = safeMessage(error, "The provider could not be reached.");
+    // `lastError` is stored unencrypted and surfaced in Settings, so the message
+    // is re-checked here rather than trusted from the adapter.
+    const message = safeStatusMessage(
+      safeMessage(error, "The provider could not be reached."),
+    );
     setStatus(db, connectionId, status, message);
     throw new SyncFailedError(message, status);
   }
