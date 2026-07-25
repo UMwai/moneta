@@ -8,6 +8,13 @@
       "when": 1784991023617,
       "tag": "0000_military_red_wolf",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1784994328108,
+      "tag": "0001_soft_korath",
+      "breakpoints": true
     }
   ]
 }

@@ -23,6 +23,9 @@ export const users = sqliteTable(
     id: text("id").primaryKey(),
     username: text("username").notNull(),
     passwordHash: text("password_hash").notNull(),
+    /** bumped on logout and password change; sessions carry it and are rejected
+     *  once it moves, which is what makes a stateless JWT revocable */
+    sessionVersion: integer("session_version").notNull().default(1),
     createdAt: text("created_at").notNull(),
   },
   (t) => [uniqueIndex("users_username_uq").on(t.username)],

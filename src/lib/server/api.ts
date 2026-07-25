@@ -1,8 +1,13 @@
 import { ZodError, type ZodType } from "zod";
 
-import { SessionRequiredError, requireSession } from "@/lib/auth/session";
+import {
+  SessionRequiredError,
+  requireSession,
+  type SessionClaims,
+} from "@/lib/auth/session";
 import { DecryptionError, EncryptionKeyError } from "@/lib/crypto";
 import { ImportAccountError } from "@/lib/server/import";
+import { store } from "@/lib/server/store";
 import { ConnectionNotFoundError, SyncFailedError } from "@/lib/server/sync";
 import type { ApiError } from "@/lib/types";
 
@@ -42,13 +47,28 @@ export async function parseJson<T>(
   return schema.parse(body);
 }
 
+/**
+ * The data plane's session check: a valid signature is not enough, the token's
+ * `sessionVersion` also has to still match the user row. src/proxy.ts can only
+ * check the signature (it has no database), so this is where a logged-out or
+ * password-changed cookie is actually turned away.
+ */
+export async function requireLiveSession(): Promise<SessionClaims> {
+  const session = await requireSession();
+  const current = await store.sessionVersion(session.id);
+  if (current === null || current !== session.sessionVersion) {
+    throw new SessionRequiredError();
+  }
+  return session;
+}
+
 export async function apiHandler<T>(
   handler: () => Promise<T | Response>,
   options: { authenticated?: boolean; status?: number } = {},
 ): Promise<Response> {
   try {
     if (options.authenticated !== false) {
-      await requireSession();
+      await requireLiveSession();
     }
     const result = await handler();
     if (result instanceof Response) {

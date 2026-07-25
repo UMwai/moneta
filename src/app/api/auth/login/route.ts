@@ -1,7 +1,12 @@
 import { z } from "zod";
 
+import { clientAddressKey } from "@/lib/auth/client-address";
 import { hashPassword, verifyPassword } from "@/lib/auth/passwords";
-import { loginRateLimiter } from "@/lib/auth/ratelimit";
+import {
+  loginAccountRateLimiter,
+  loginRateLimiter,
+  type RateLimitResult,
+} from "@/lib/auth/ratelimit";
 import { setSession } from "@/lib/auth/session";
 import {
   ApiException,
@@ -20,23 +25,20 @@ const credentialsSchema = z
 
 let dummyPasswordHash: Promise<string> | undefined;
 
-function clientKey(request: Request): string {
-  const forwarded = request.headers.get("x-forwarded-for");
-  return forwarded?.split(",")[0]?.trim() ||
-    request.headers.get("x-real-ip") ||
-    "unknown";
+function rateLimited(result: RateLimitResult): Response {
+  return errorResponse(
+    429,
+    "RATE_LIMITED",
+    "Too many login attempts; try again later",
+    { "Retry-After": String(result.retryAfterSeconds) },
+  );
 }
 
 export async function POST(request: Request): Promise<Response> {
-  const key = clientKey(request);
-  const rateLimit = loginRateLimiter.consume(key);
-  if (!rateLimit.allowed) {
-    return errorResponse(
-      429,
-      "RATE_LIMITED",
-      "Too many login attempts; try again later",
-      { "Retry-After": String(rateLimit.retryAfterSeconds) },
-    );
+  const addressKey = clientAddressKey(request);
+  const byAddress = loginRateLimiter.consume(addressKey);
+  if (!byAddress.allowed) {
+    return rateLimited(byAddress);
   }
 
   return apiHandler(
@@ -45,6 +47,15 @@ export async function POST(request: Request): Promise<Response> {
         request,
         credentialsSchema,
       );
+      // Charged per account as well, because the address key is only as
+      // trustworthy as the deployment (see clientAddressKey) while the username
+      // is whatever the attacker must actually guess against.
+      const accountKey = username.toLowerCase();
+      const byAccount = loginAccountRateLimiter.consume(accountKey);
+      if (!byAccount.allowed) {
+        return rateLimited(byAccount);
+      }
+
       const user = await store.findUserByUsername(username);
       dummyPasswordHash ??= hashPassword("moneta-invalid-password");
       const valid = await verifyPassword(
@@ -59,8 +70,13 @@ export async function POST(request: Request): Promise<Response> {
         );
       }
 
-      await setSession({ id: user.id, username: user.username });
-      loginRateLimiter.reset(key);
+      await setSession({
+        id: user.id,
+        username: user.username,
+        sessionVersion: user.sessionVersion,
+      });
+      loginRateLimiter.reset(addressKey);
+      loginAccountRateLimiter.reset(accountKey);
       return { ok: true as const };
     },
     { authenticated: false },

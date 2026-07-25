@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 import { ProviderError } from "@/lib/providers/errors";
+import type { LookupLike } from "@/lib/providers/netguard";
 import {
   createSimpleFinProvider,
   decodeSetupToken,
@@ -43,10 +44,22 @@ function jsonResponse(body: string, status = 200): Response {
   return new Response(body, { status, headers: { "content-type": "application/json" } });
 }
 
+/** Every hostname in this suite resolves here; the suite never touches DNS. */
+const PUBLIC_ADDRESS = "203.0.113.10";
+const resolvesTo =
+  (...addresses: string[]): LookupLike =>
+  async () =>
+    addresses.map((address) => ({ address, family: address.includes(":") ? 6 : 4 }));
+
 function providerWith(responder: (url: string) => Response, initialLookbackDays?: number) {
   const { fetch, calls } = mockFetch(responder);
   return {
-    provider: createSimpleFinProvider({ fetch, now: () => NOW, initialLookbackDays }),
+    provider: createSimpleFinProvider({
+      fetch,
+      now: () => NOW,
+      initialLookbackDays,
+      lookup: resolvesTo(PUBLIC_ADDRESS),
+    }),
     calls,
   };
 }
@@ -253,14 +266,65 @@ describe("simplefin provider", () => {
     expect(calls).toHaveLength(0);
   });
 
-  it("reports an unreachable bridge as a network error", async () => {
+  it("reports an unreachable bridge as a network error without echoing it", async () => {
     const provider = createSimpleFinProvider({
       fetch: async () => {
-        throw new Error("getaddrinfo ENOTFOUND bridge.example.com");
+        throw new TypeError(`Failed to parse URL from ${ACCESS_URL}`);
       },
+      lookup: resolvesTo(PUBLIC_ADDRESS),
     });
+    // The whole message is replaced, so neither the password nor the host the
+    // transport error quoted can reach the user or `connections.last_error`.
     await expect(provider.listAccounts({ accessUrl: ACCESS_URL })).rejects.toMatchObject({
       code: "network_error",
+      message: "Could not reach the SimpleFIN bridge.",
+    });
+  });
+});
+
+describe("egress guard", () => {
+  const fetchShouldNotRun: FetchLike = async () => {
+    throw new Error("fetch must not be reached");
+  };
+
+  function guardedProvider(lookup: LookupLike, fetch: FetchLike = fetchShouldNotRun) {
+    return createSimpleFinProvider({ fetch, now: () => NOW, lookup });
+  }
+
+  it("refuses an access URL that resolves onto the host network", async () => {
+    const provider = guardedProvider(resolvesTo("127.0.0.1"));
+    await expect(provider.listAccounts({ accessUrl: ACCESS_URL })).rejects.toMatchObject({
+      code: "blocked_target",
+    });
+  });
+
+  it("refuses a claim URL pointed at the cloud metadata endpoint", async () => {
+    const provider = guardedProvider(resolvesTo(PUBLIC_ADDRESS));
+    const token = Buffer.from("https://169.254.169.254/latest/meta-data/", "utf8").toString(
+      "base64",
+    );
+    await expect(provider.claimSetupToken(token)).rejects.toMatchObject({
+      code: "blocked_target",
+    });
+  });
+
+  it("refuses a plain-http access URL outright", async () => {
+    const provider = guardedProvider(resolvesTo(PUBLIC_ADDRESS));
+    await expect(
+      provider.listAccounts({ accessUrl: "http://user:pass@bridge.example.com/simplefin" }),
+    ).rejects.toThrow(/https/i);
+    expect(() => decodeSetupToken(Buffer.from("http://bridge.example.com/claim").toString("base64")))
+      .toThrow(/claim URL/);
+  });
+
+  it("does not follow a redirect out of the guarded host", async () => {
+    const provider = guardedProvider(
+      resolvesTo(PUBLIC_ADDRESS),
+      async () =>
+        new Response("", { status: 302, headers: { location: "http://127.0.0.1:8080/" } }),
+    );
+    await expect(provider.listAccounts({ accessUrl: ACCESS_URL })).rejects.toMatchObject({
+      code: "blocked_redirect",
     });
   });
 });

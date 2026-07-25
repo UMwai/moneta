@@ -20,6 +20,18 @@ const multipartSchema = z
 
 export async function POST(request: Request): Promise<Response> {
   return apiHandler(async () => {
+    // `formData()` buffers the whole body, so an oversized upload has to be
+    // refused from the declared length first; the check below the parse stays
+    // as the backstop for a request that lied or omitted the header.
+    const declaredLength = Number(request.headers.get("content-length"));
+    if (Number.isFinite(declaredLength) && declaredLength > MAX_IMPORT_BYTES) {
+      throw new ApiException(
+        413,
+        "CSV_TOO_LARGE",
+        "CSV file must not exceed 5 MiB",
+      );
+    }
+
     let form: FormData;
     try {
       form = await request.formData();

@@ -7,6 +7,7 @@ import type { SessionUser } from "@/lib/types";
 
 export interface UserRecord extends SessionUser {
   passwordHash: string;
+  sessionVersion: number;
   createdAt: string;
 }
 
@@ -18,6 +19,7 @@ export function createUser(
     id: id("usr"),
     username: input.username.trim().toLowerCase(),
     passwordHash: input.passwordHash,
+    sessionVersion: 1,
     createdAt: nowISO(),
   };
   db.insert(users).values(row).run();
@@ -53,12 +55,33 @@ export function needsSetup(db: Db): boolean {
   return countUsers(db) === 0;
 }
 
+export function getSessionVersion(db: Db, userId: string): number | null {
+  const row = db
+    .select({ version: users.sessionVersion })
+    .from(users)
+    .where(eq(users.id, userId))
+    .get();
+  return row?.version ?? null;
+}
+
+/** Invalidates every session already issued to this user. */
+export function bumpSessionVersion(db: Db, userId: string): void {
+  db.update(users)
+    .set({ sessionVersion: sql`${users.sessionVersion} + 1` })
+    .where(eq(users.id, userId))
+    .run();
+}
+
+/** A new password revokes the old sessions; that is the point of changing it. */
 export function updatePassword(
   db: Db,
   userId: string,
   passwordHash: string,
 ): void {
-  db.update(users).set({ passwordHash }).where(eq(users.id, userId)).run();
+  db.update(users)
+    .set({ passwordHash, sessionVersion: sql`${users.sessionVersion} + 1` })
+    .where(eq(users.id, userId))
+    .run();
 }
 
 export function toSessionUser(u: UserRecord): SessionUser {
