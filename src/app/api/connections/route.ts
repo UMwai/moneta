@@ -1,6 +1,8 @@
 import { z } from "zod";
 
-import { apiHandler, parseJson } from "@/lib/server/api";
+import { safeMessage } from "@/lib/providers/errors";
+import { ApiException, apiHandler, parseJson } from "@/lib/server/api";
+import { resolveProvider } from "@/lib/server/providers";
 import { encryptCredentials } from "@/lib/server/secrets";
 import { store } from "@/lib/server/store";
 
@@ -25,8 +27,28 @@ export async function POST(request: Request): Promise<Response> {
         request,
         connectionSchema,
       );
-      const encryptedCredentials = encryptCredentials(credentials);
-      return store.createConnection(provider, encryptedCredentials);
+
+      // Validate before storing. A connection whose credentials never worked is
+      // worse than no connection at all: it looks healthy until the first sync.
+      let outcome: { ok: boolean; message?: string };
+      try {
+        outcome = await resolveProvider(provider).test(credentials);
+      } catch (error) {
+        throw new ApiException(
+          400,
+          "PROVIDER_TEST_FAILED",
+          safeMessage(error, "Could not validate these credentials."),
+        );
+      }
+      if (!outcome.ok) {
+        throw new ApiException(
+          400,
+          "PROVIDER_TEST_FAILED",
+          outcome.message ?? "The provider rejected these credentials.",
+        );
+      }
+
+      return store.createConnection(provider, encryptCredentials(credentials));
     },
     { status: 201 },
   );

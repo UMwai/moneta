@@ -67,7 +67,7 @@ export async function setSession(user: SessionUser): Promise<void> {
   cookieStore.set(SESSION_COOKIE_NAME, await signSession(user), {
     httpOnly: true,
     sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
+    secure: process.env.NODE_ENV === "production" && process.env.COOKIE_SECURE !== "false",
     path: "/",
     maxAge: SESSION_MAX_AGE_SECONDS,
   });
@@ -78,7 +78,7 @@ export async function clearSession(): Promise<void> {
   cookieStore.set(SESSION_COOKIE_NAME, "", {
     httpOnly: true,
     sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
+    secure: process.env.NODE_ENV === "production" && process.env.COOKIE_SECURE !== "false",
     path: "/",
     maxAge: 0,
   });
