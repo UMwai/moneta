@@ -1,0 +1,13 @@
+services:
+  moneta:
+    image: ghcr.io/umwai/moneta:edge
+    build: .
+    ports:
+      - "3000:3000"
+    env_file: .env
+    volumes:
+      - moneta-data:/app/data
+    restart: unless-stopped
+
+volumes:
+  moneta-data:

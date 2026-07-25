@@ -1,36 +1,59 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Moneta
 
-## Getting Started
+Self-hosted, open-source personal finance for individuals. Pull it down, add **your own**
+bank-aggregator key (Plaid, SimpleFIN, or Teller) — or just import CSV/OFX — and get a
+full picture of your money plus concrete suggestions to improve it. Your data never
+leaves your machine.
 
-First, run the development server:
+## Features
+
+- **Bank sync, bring-your-own-key** — Plaid / SimpleFIN Bridge / Teller adapters behind
+  one interface; CSV & OFX import if you'd rather use no aggregator at all
+- **Understand** — accounts, transactions, auto-categorization, net worth over time,
+  cash flow, recurring-charge detection
+- **Improve** — monthly budgets with breach forecasts, subscription/waste finder,
+  savings rate & cash runway, an insights feed with suggested actions
+- **Own** — single Docker container, SQLite file database, AES-256-GCM-encrypted
+  credentials, no telemetry
+
+## Quick start
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+git clone https://github.com/UMwai/moneta && cd moneta
+cp .env.example .env
+# fill APP_ENCRYPTION_KEY and SESSION_SECRET (openssl rand -hex 32)
+docker compose up -d
+# open http://localhost:3000 and complete first-run setup
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Or for development:
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```bash
+pnpm install
+pnpm db:migrate
+pnpm dev
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Connecting your bank
 
-## Learn More
+Moneta ships with no aggregator account — you supply your own credentials in
+**Settings → Connections**:
 
-To learn more about Next.js, take a look at the following resources:
+| Provider | What you need | Cost |
+|----------|---------------|------|
+| Plaid | client id + secret from dashboard.plaid.com | free sandbox / paid production |
+| SimpleFIN Bridge | setup token from bridge.simplefin.org | ~$1.50/mo |
+| Teller | app id from teller.io | free tier |
+| CSV / OFX | an export from your bank | free |
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+Credentials are encrypted at rest with your `APP_ENCRYPTION_KEY` and never sent
+anywhere except the provider you chose.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Docs
 
-## Deploy on Vercel
+- [PLAN.md](PLAN.md) — roadmap and architecture
+- [decisions/](decisions/) — architecture decision records
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## License
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+MIT
