@@ -1,6 +1,9 @@
 import { ZodError, type ZodType } from "zod";
 
 import { SessionRequiredError, requireSession } from "@/lib/auth/session";
+import { DecryptionError, EncryptionKeyError } from "@/lib/crypto";
+import { ImportAccountError } from "@/lib/server/import";
+import { ConnectionNotFoundError, SyncFailedError } from "@/lib/server/sync";
 import type { ApiError } from "@/lib/types";
 
 export class ApiException extends Error {
@@ -65,6 +68,29 @@ export async function apiHandler<T>(
         "VALIDATION_ERROR",
         error.issues[0]?.message ?? "Request validation failed",
       );
+    }
+    if (error instanceof ConnectionNotFoundError) {
+      return errorResponse(404, "CONNECTION_NOT_FOUND", error.message);
+    }
+    if (error instanceof ImportAccountError) {
+      return errorResponse(404, "ACCOUNT_NOT_FOUND", error.message);
+    }
+    if (error instanceof SyncFailedError) {
+      return errorResponse(
+        error.status === "reauth_required" ? 401 : 502,
+        error.status === "reauth_required"
+          ? "REAUTH_REQUIRED"
+          : "PROVIDER_SYNC_FAILED",
+        error.message,
+      );
+    }
+    // Both of these are operator problems, not user errors, and their messages
+    // are written to say what to fix without echoing any credential material.
+    if (error instanceof EncryptionKeyError) {
+      return errorResponse(500, "ENCRYPTION_KEY_INVALID", error.message);
+    }
+    if (error instanceof DecryptionError) {
+      return errorResponse(500, "CREDENTIALS_UNREADABLE", error.message);
     }
     return errorResponse(500, "INTERNAL_ERROR", "Internal server error");
   }

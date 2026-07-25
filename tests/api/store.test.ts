@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { parseImportFile } from "@/lib/server/import";
 import { InMemoryStore } from "@/lib/server/store";
 import type { Account, Transaction } from "@/lib/types";
 
@@ -102,27 +103,24 @@ describe("InMemoryStore transaction queries", () => {
     expect(result.items[0].id).toBe("tx-1");
   });
 
-  it("deduplicates CSV imports by date, name, and amount", async () => {
+  it("imports each row once and ignores a re-import of the same file", async () => {
     const store = new InMemoryStore({ accounts: [account] });
-    const rows = [
-      {
-        date: "2026-07-04",
-        name: "Bookshop",
-        amount: -1999,
-        category: null,
-      },
-      {
-        date: "2026-07-04",
-        name: "Bookshop",
-        amount: -1999,
-        category: null,
-      },
-    ];
-
-    await expect(store.importCsv(rows, account.id)).resolves.toEqual({
-      imported: 1,
+    const file = [
+      "Date,Description,Amount",
+      "2026-07-04,Bookshop,-19.99",
+      // The same charge twice on one day is a real thing banks do, so both rows
+      // must land; only a re-import of the file is a duplicate.
+      "2026-07-04,Bookshop,-19.99",
+    ].join("\n");
+    const batch = () => ({
+      ...parseImportFile(file, "statement.csv"),
+      accountId: account.id,
     });
-    await expect(store.importCsv(rows, account.id)).resolves.toEqual({
+
+    await expect(store.importTransactions(batch())).resolves.toEqual({
+      imported: 2,
+    });
+    await expect(store.importTransactions(batch())).resolves.toEqual({
       imported: 0,
     });
   });

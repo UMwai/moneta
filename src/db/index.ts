@@ -1,5 +1,6 @@
-import { mkdirSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import Database from "better-sqlite3";
 import { drizzle, type BetterSQLite3Database } from "drizzle-orm/better-sqlite3";
 import { migrate as applyMigrations } from "drizzle-orm/better-sqlite3/migrator";
@@ -16,10 +17,12 @@ export type Db = BetterSQLite3Database<typeof schema> & {
 const DEFAULT_PATH = "./data/moneta.db";
 
 function migrationsFolder(): string {
-  return (
-    process.env.MONETA_MIGRATIONS_DIR ??
-    resolve(process.cwd(), "src/db/migrations")
-  );
+  if (process.env.MONETA_MIGRATIONS_DIR) return process.env.MONETA_MIGRATIONS_DIR;
+  // `next build --output standalone` re-roots the server, so cwd is not always
+  // the repo root. Fall back to a path derived from this module's location.
+  const fromCwd = resolve(process.cwd(), "src/db/migrations");
+  if (existsSync(fromCwd)) return fromCwd;
+  return resolve(dirname(fileURLToPath(import.meta.url)), "migrations");
 }
 
 function tune(sqlite: Database.Database, file: boolean): void {

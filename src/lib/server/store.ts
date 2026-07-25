@@ -1,5 +1,41 @@
 import { randomUUID } from "node:crypto";
 
+import { getDb, migrate, type Db } from "@/db";
+import { flattenCategories } from "@/lib/domain/seed";
+import {
+  createUser,
+  countUsers,
+  findUserByUsername,
+} from "@/lib/domain/repos/users";
+import {
+  listAccounts as listAccountsRepo,
+} from "@/lib/domain/repos/accounts";
+import {
+  listTransactions as listTransactionsRepo,
+  updateTransaction as updateTransactionRepo,
+} from "@/lib/domain/repos/transactions";
+import {
+  getCategory,
+  listCategories as listCategoriesRepo,
+} from "@/lib/domain/repos/categories";
+import {
+  listBudgetStatus,
+  upsertBudget as upsertBudgetRepo,
+} from "@/lib/domain/repos/budgets";
+import { getNetWorthSeries } from "@/lib/domain/repos/networth";
+import {
+  dismissInsight as dismissInsightRepo,
+  listInsights as listInsightsRepo,
+} from "@/lib/domain/repos/insights";
+import { listRecurring as listRecurringRepo } from "@/lib/domain/repos/recurring";
+import {
+  createConnection as createConnectionRepo,
+  deleteConnection as deleteConnectionRepo,
+  getConnection,
+  listConnections as listConnectionsRepo,
+} from "@/lib/domain/repos/connections";
+import { applyImport, type ImportBatch } from "@/lib/server/import";
+import { syncConnection, type SyncOutcome } from "@/lib/server/sync";
 import type {
   Account,
   Budget,
@@ -10,10 +46,10 @@ import type {
   NetWorthPoint,
   Paginated,
   ProviderKind,
+  ProviderTransaction,
   RecurringSeries,
   Transaction,
 } from "@/lib/types";
-import type { CsvTransaction } from "@/lib/server/csv";
 
 export interface StoredUser {
   id: string;
@@ -67,10 +103,143 @@ export interface Store {
   ): Promise<Connection>;
   hasConnection(id: string): Promise<boolean>;
   deleteConnection(id: string): Promise<boolean>;
-  importCsv(
-    rows: CsvTransaction[],
-    accountId?: string,
-  ): Promise<{ imported: number }>;
+  /** Pulls from the provider and folds the result into the ledger. */
+  syncConnection(id: string): Promise<SyncOutcome>;
+  /** Lands an already-parsed CSV/OFX batch; returns how many rows were new. */
+  importTransactions(batch: ImportBatch): Promise<{ imported: number }>;
+}
+
+/**
+ * The production store: every method is a thin async facade over the synchronous
+ * Drizzle repositories in src/lib/domain/repos. Migrations and the system
+ * category seed are applied on first touch, so `pnpm dev` and the standalone
+ * server both come up against an empty data directory without a setup step.
+ */
+export class DrizzleStore implements Store {
+  private prepared: Db | undefined;
+
+  constructor(private readonly source: Db | (() => Db) = getDb) {}
+
+  private db(): Db {
+    if (!this.prepared) {
+      const raw = typeof this.source === "function" ? this.source() : this.source;
+      this.prepared = migrate(raw);
+    }
+    return this.prepared;
+  }
+
+  async hasUser(): Promise<boolean> {
+    return countUsers(this.db()) > 0;
+  }
+
+  async createUser(
+    username: string,
+    passwordHash: string,
+  ): Promise<StoredUser> {
+    const db = this.db();
+    // Moneta is single-household by design; the check also closes the race
+    // where two setup posts arrive before either has committed.
+    if (countUsers(db) > 0) {
+      throw new Error("A user already exists");
+    }
+    const user = createUser(db, { username, passwordHash });
+    return { id: user.id, username: user.username, passwordHash: user.passwordHash };
+  }
+
+  async findUserByUsername(username: string): Promise<StoredUser | null> {
+    const user = findUserByUsername(this.db(), username);
+    return user
+      ? { id: user.id, username: user.username, passwordHash: user.passwordHash }
+      : null;
+  }
+
+  async listAccounts(): Promise<Account[]> {
+    return listAccountsRepo(this.db());
+  }
+
+  async listTransactions(
+    filters: TransactionFilters,
+  ): Promise<Paginated<Transaction>> {
+    return listTransactionsRepo(this.db(), filters);
+  }
+
+  async updateTransaction(
+    id: string,
+    patch: TransactionPatch,
+  ): Promise<Transaction | null> {
+    // A PATCH from the UI is a human decision, so the repo stamps
+    // categorySource='user' and the rules engine leaves the row alone forever.
+    return updateTransactionRepo(this.db(), id, patch, { source: "user" });
+  }
+
+  async listCategories(): Promise<Category[]> {
+    return listCategoriesRepo(this.db());
+  }
+
+  async hasCategory(id: string): Promise<boolean> {
+    return getCategory(this.db(), id) !== null;
+  }
+
+  async listBudgetStatuses(month: string): Promise<BudgetStatus[]> {
+    return listBudgetStatus(this.db(), month);
+  }
+
+  async upsertBudget(
+    categoryId: string,
+    month: string,
+    amount: number,
+  ): Promise<Budget> {
+    return upsertBudgetRepo(this.db(), { categoryId, month, amount });
+  }
+
+  async listNetWorth(from?: string, to?: string): Promise<NetWorthPoint[]> {
+    return getNetWorthSeries(this.db(), { from, to });
+  }
+
+  async listInsights(period: string): Promise<Insight[]> {
+    return listInsightsRepo(this.db(), { period });
+  }
+
+  async dismissInsight(id: string): Promise<boolean> {
+    return dismissInsightRepo(this.db(), id);
+  }
+
+  async listRecurring(): Promise<RecurringSeries[]> {
+    return listRecurringRepo(this.db());
+  }
+
+  async listConnections(): Promise<Connection[]> {
+    return listConnectionsRepo(this.db());
+  }
+
+  async createConnection(
+    provider: ProviderKind,
+    encryptedCredentials: string,
+  ): Promise<Connection> {
+    return createConnectionRepo(this.db(), {
+      provider,
+      credentialsEnc: encryptedCredentials,
+    });
+  }
+
+  async hasConnection(id: string): Promise<boolean> {
+    return getConnection(this.db(), id) !== null;
+  }
+
+  async deleteConnection(id: string): Promise<boolean> {
+    const db = this.db();
+    if (!getConnection(db, id)) return false;
+    deleteConnectionRepo(db, id);
+    return true;
+  }
+
+  async syncConnection(id: string): Promise<SyncOutcome> {
+    return syncConnection(this.db(), id);
+  }
+
+  async importTransactions(batch: ImportBatch): Promise<{ imported: number }> {
+    return applyImport(this.db(), batch);
+  }
 }
 
 export interface InMemorySeed {
@@ -85,56 +254,15 @@ export interface InMemorySeed {
   connections?: Connection[];
 }
 
-const SEEDED_CATEGORIES: Category[] = [
-  {
-    id: "cat-income",
-    name: "Income",
-    parentId: null,
-    icon: "Landmark",
-    discretionary: false,
-    system: true,
-  },
-  {
-    id: "cat-housing",
-    name: "Housing",
-    parentId: null,
-    icon: "House",
-    discretionary: false,
-    system: true,
-  },
-  {
-    id: "cat-groceries",
-    name: "Groceries",
-    parentId: null,
-    icon: "ShoppingBasket",
-    discretionary: false,
-    system: true,
-  },
-  {
-    id: "cat-dining",
-    name: "Dining",
-    parentId: null,
-    icon: "Utensils",
-    discretionary: true,
-    system: true,
-  },
-  {
-    id: "cat-transport",
-    name: "Transportation",
-    parentId: null,
-    icon: "Car",
-    discretionary: false,
-    system: true,
-  },
-  {
-    id: "cat-entertainment",
-    name: "Entertainment",
-    parentId: null,
-    icon: "Clapperboard",
-    discretionary: true,
-    system: true,
-  },
-];
+/** The system taxonomy, shared with the DB seed so the two can never diverge. */
+const SEEDED_CATEGORIES: Category[] = flattenCategories().map((category) => ({
+  id: category.id,
+  name: category.name,
+  parentId: category.parentId,
+  icon: category.icon,
+  discretionary: category.discretionary,
+  system: category.system,
+}));
 
 function clone<T>(value: T): T {
   return structuredClone(value);
@@ -145,8 +273,9 @@ function nowIso(): string {
 }
 
 /**
- * M3 in-memory adapter. M5 swaps this for the Drizzle-backed store from
- * src/lib/domain; route handlers depend only on the Store interface.
+ * Test-only adapter. It backs unit tests that need a Store without a database;
+ * anything that exercises the real ingest pipeline uses DrizzleStore over a
+ * temp/in-memory SQLite file instead (see tests/integration).
  */
 export class InMemoryStore implements Store {
   private readonly users: StoredUser[];
@@ -388,74 +517,48 @@ export class InMemoryStore implements Store {
     return true;
   }
 
-  async importCsv(
-    rows: CsvTransaction[],
-    accountId?: string,
-  ): Promise<{ imported: number }> {
-    let targetAccountId = accountId;
-    if (targetAccountId) {
-      if (!this.accounts.some((account) => account.id === targetAccountId)) {
-        throw new Error("Account not found");
-      }
-    } else {
-      let importAccount = this.accounts.find(
-        (account) =>
-          account.connectionId === null && account.name === "CSV Import",
-      );
-      if (!importAccount) {
-        const timestamp = nowIso();
-        importAccount = {
-          id: randomUUID(),
-          name: "CSV Import",
-          officialName: null,
-          type: "checking",
-          currency: "USD",
-          balance: 0,
-          available: null,
-          institution: null,
-          connectionId: null,
-          mask: null,
-          archived: false,
-          createdAt: timestamp,
-          updatedAt: timestamp,
-        };
-        this.accounts.push(importAccount);
-      }
-      targetAccountId = importAccount.id;
-    }
-
-    const keys = new Set(
-      this.transactions.map(
-        (transaction) =>
-          `${transaction.date}\u0000${transaction.name}\u0000${transaction.amount}`,
-      ),
+  async syncConnection(): Promise<SyncOutcome> {
+    throw new Error(
+      "Provider sync needs the ledger; use DrizzleStore over a test database.",
     );
+  }
+
+  async importTransactions(
+    batch: ImportBatch,
+  ): Promise<{ imported: number }> {
+    const targetAccountId = batch.accountId
+      ? this.requireAccount(batch.accountId)
+      : this.fileImportAccount();
+
     let imported = 0;
-    for (const row of rows) {
-      const key = `${row.date}\u0000${row.name}\u0000${row.amount}`;
-      if (keys.has(key)) {
-        continue;
-      }
-      keys.add(key);
-      const timestamp = nowIso();
-      const category = row.category
+    for (const row of batch.transactions) {
+      const duplicate = this.transactions.some(
+        (transaction) =>
+          transaction.accountId === targetAccountId &&
+          transaction.externalId === row.externalId,
+      );
+      if (duplicate) continue;
+
+      const label = batch.categoryByExternalId?.[row.externalId];
+      const category = label
         ? this.categories.find(
             (item) =>
-              item.name.toLocaleLowerCase() ===
-              row.category?.toLocaleLowerCase(),
+              item.name.toLocaleLowerCase() === label.toLocaleLowerCase() ||
+              item.id === label,
           )
         : undefined;
+      const timestamp = nowIso();
       this.transactions.push({
         id: randomUUID(),
         accountId: targetAccountId,
-        externalId: null,
+        externalId: row.externalId,
         amount: row.amount,
-        currency: "USD",
+        currency: row.currency,
         date: row.date,
         name: row.name,
-        merchant: null,
+        merchant: row.merchant,
         categoryId: category?.id ?? null,
-        pending: false,
+        pending: row.pending,
         notes: null,
         recurringSeriesId: null,
         createdAt: timestamp,
@@ -465,10 +568,46 @@ export class InMemoryStore implements Store {
     }
     return { imported };
   }
+
+  private requireAccount(accountId: string): string {
+    if (!this.accounts.some((account) => account.id === accountId)) {
+      throw new Error("Account not found");
+    }
+    return accountId;
+  }
+
+  private fileImportAccount(): string {
+    const existing = this.accounts.find(
+      (account) =>
+        account.connectionId === null && account.name === "File Import",
+    );
+    if (existing) return existing.id;
+
+    const timestamp = nowIso();
+    const created: Account = {
+      id: randomUUID(),
+      name: "File Import",
+      officialName: null,
+      type: "checking",
+      currency: "USD",
+      balance: 0,
+      available: null,
+      institution: null,
+      connectionId: null,
+      mask: null,
+      archived: false,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    };
+    this.accounts.push(created);
+    return created.id;
+  }
 }
+
+export type { ImportBatch, ProviderTransaction, SyncOutcome };
 
 const STORE_SYMBOL = Symbol.for("moneta.store");
 type StoreGlobal = typeof globalThis & { [STORE_SYMBOL]?: Store };
 const globals = globalThis as StoreGlobal;
 
-export const store: Store = (globals[STORE_SYMBOL] ??= new InMemoryStore());
+export const store: Store = (globals[STORE_SYMBOL] ??= new DrizzleStore());

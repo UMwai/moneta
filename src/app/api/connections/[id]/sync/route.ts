@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { ApiException, apiHandler } from "@/lib/server/api";
+import { apiHandler } from "@/lib/server/api";
 import { store } from "@/lib/server/store";
 
 const idSchema = z.string().min(1);
@@ -15,14 +15,8 @@ export async function POST(
 ): Promise<Response> {
   return apiHandler(async () => {
     const id = idSchema.parse((await context.params).id);
-    if (!(await store.hasConnection(id))) {
-      throw new ApiException(
-        404,
-        "CONNECTION_NOT_FOUND",
-        "Connection not found",
-      );
-    }
-    // TODO(M5): invoke the matching BankProvider and persist its SyncResult.
-    return { added: 0, modified: 0 };
+    // A missing connection, undecryptable credentials and an unreachable
+    // provider all surface through apiHandler's error mapping.
+    return store.syncConnection(id);
   });
 }

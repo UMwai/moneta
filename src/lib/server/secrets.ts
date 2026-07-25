@@ -1,26 +1,21 @@
-import { createCipheriv, randomBytes } from "node:crypto";
+/**
+ * Provider credentials at rest. Thin wrapper over src/lib/crypto.ts so route and
+ * store code never touches the cipher directly — and so there is exactly one
+ * place to audit for credential handling.
+ *
+ * Nothing here logs, stringifies or re-throws the plaintext: a decrypt failure
+ * surfaces as the crypto layer's DecryptionError, whose message is deliberately
+ * free of payload material.
+ */
 
-const KEY_SYMBOL = Symbol.for("moneta.in-memory-credential-key");
+import { openJson, sealJson } from "@/lib/crypto";
 
-type SecretGlobal = typeof globalThis & {
-  [KEY_SYMBOL]?: Buffer;
-};
-
-function processKey(): Buffer {
-  const globals = globalThis as SecretGlobal;
-  globals[KEY_SYMBOL] ??= randomBytes(32);
-  return globals[KEY_SYMBOL];
+/** Encrypt a credential blob for the `connections.credentials_enc` column. */
+export function encryptCredentials(credentials: unknown): string {
+  return sealJson(credentials);
 }
 
-/**
- * Temporary M3 protection for credentials held by InMemoryStore.
- * TODO(M5): replace this function with src/lib/crypto.ts seal/open.
- */
-export function encryptCredentials(credentials: unknown): string {
-  const nonce = randomBytes(12);
-  const cipher = createCipheriv("aes-256-gcm", processKey(), nonce);
-  const plaintext = Buffer.from(JSON.stringify(credentials), "utf8");
-  const ciphertext = Buffer.concat([cipher.update(plaintext), cipher.final()]);
-  const tag = cipher.getAuthTag();
-  return Buffer.concat([nonce, tag, ciphertext]).toString("base64url");
+/** Decrypt a blob written by {@link encryptCredentials}. */
+export function decryptCredentials<T = unknown>(sealed: string): T {
+  return openJson<T>(sealed);
 }
