@@ -47,4 +47,3 @@ next-env.d.ts
 data/
 *.db
 .env
-/docs/screenshots/*.png

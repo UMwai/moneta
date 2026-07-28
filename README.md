@@ -16,6 +16,17 @@ leaves your machine.
 - **Own** — single Docker container, SQLite file database, AES-256-GCM-encrypted
   credentials, no telemetry
 
+![Dashboard](docs/screenshots/dashboard.png)
+
+<details>
+<summary>More screenshots — transactions, budgets, insights</summary>
+
+![Transactions](docs/screenshots/transactions.png)
+![Budgets](docs/screenshots/budgets.png)
+![Insights](docs/screenshots/insights.png)
+
+</details>
+
 ## Quick start
 
 ```bash
