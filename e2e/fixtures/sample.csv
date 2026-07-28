@@ -1,0 +1,31 @@
+Date,Description,Amount,Category,Account,Transaction ID
+2026-06-01,June Payroll,5200.00,Salary,E2E Checking,fixture-001
+2026-06-03,June Rent,-1600.00,Rent,E2E Checking,fixture-002
+2026-06-04,Netflix,-17.99,Streaming,E2E Checking,fixture-003
+2026-06-05,Spotify,-11.99,Streaming,E2E Checking,fixture-004
+2026-06-06,Adobe Creative Cloud,-24.99,Software & Cloud,E2E Checking,fixture-005
+2026-06-08,Neighborhood Bistro,-38.50,Restaurants,E2E Checking,fixture-006
+2026-06-10,Sushi House,-55.20,Restaurants,E2E Checking,fixture-007
+2026-06-12,Corner Cafe,-22.75,Restaurants,E2E Checking,fixture-008
+2026-06-14,Fresh Market,-125.30,Groceries,E2E Checking,fixture-009
+2026-06-16,City Electric,-90.00,Utilities,E2E Checking,fixture-010
+2026-06-18,Blue Bottle Coffee,-6.25,Coffee Shops,E2E Checking,fixture-011
+2026-06-20,City Rideshare,-18.40,Rideshare & Taxi,E2E Checking,fixture-012
+2026-06-22,Friday Pizza,-31.10,Restaurants,E2E Checking,fixture-013
+2026-06-24,Max Streaming,-16.99,Streaming,E2E Checking,fixture-014
+2026-06-28,June Payroll Second,5200.00,Salary,E2E Checking,fixture-015
+2026-07-01,July Payroll,5200.00,Salary,E2E Checking,fixture-016
+2026-07-03,July Rent,-1600.00,Rent,E2E Checking,fixture-017
+2026-07-04,Netflix,-17.99,Streaming,E2E Checking,fixture-018
+2026-07-05,Spotify,-11.99,Streaming,E2E Checking,fixture-019
+2026-07-06,Adobe Creative Cloud,-24.99,Software & Cloud,E2E Checking,fixture-020
+2026-07-08,July Signature Dining,-650.00,Restaurants,E2E Checking,fixture-021
+2026-07-10,Sushi House,-125.20,Restaurants,E2E Checking,fixture-022
+2026-07-12,Corner Cafe,-72.75,Restaurants,E2E Checking,fixture-023
+2026-07-14,Fresh Market,-145.30,Groceries,E2E Checking,fixture-024
+2026-07-16,City Electric,-92.00,Utilities,E2E Checking,fixture-025
+2026-07-18,Blue Bottle Coffee,-8.25,Coffee Shops,E2E Checking,fixture-026
+2026-07-20,City Rideshare,-28.40,Rideshare & Taxi,E2E Checking,fixture-027
+2026-07-22,Friday Pizza,-81.10,Restaurants,E2E Checking,fixture-028
+2026-07-24,Max Streaming,-16.99,Streaming,E2E Checking,fixture-029
+2026-07-28,July Payroll Second,5200.00,Salary,E2E Checking,fixture-030

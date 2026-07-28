@@ -12,6 +12,8 @@
 
 # testing
 /coverage
+/playwright-report/
+/test-results/
 
 # next.js
 /.next/
@@ -45,3 +47,4 @@ next-env.d.ts
 data/
 *.db
 .env
+/docs/screenshots/*.png
