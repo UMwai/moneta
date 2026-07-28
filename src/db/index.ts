@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import Database from "better-sqlite3";
 import { drizzle, type BetterSQLite3Database } from "drizzle-orm/better-sqlite3";
 import { migrate as applyMigrations } from "drizzle-orm/better-sqlite3/migrator";
+import { seedDemo } from "@/lib/demo/seed";
 import { seedCategories } from "@/lib/domain/seed";
 import * as schema from "./schema";
 
@@ -54,6 +55,7 @@ export function getDb(): Db {
 export function migrate(db: Db = getDb()): Db {
   applyMigrations(db, { migrationsFolder: migrationsFolder() });
   seedCategories(db);
+  seedDemo(db);
   return db;
 }
 

@@ -15,36 +15,51 @@ export interface SnapshotInput {
 }
 
 /**
+ * Writes explicit historical balances through the same repository boundary as
+ * the live snapshot path. Repeated dates replace their prior closing balance.
+ */
+export function writeSnapshots(db: Db, inputs: SnapshotInput[]): number {
+  if (inputs.length === 0) return 0;
+  const ts = nowISO();
+  db.transaction(() => {
+    for (const input of inputs) {
+      db.insert(networthSnapshots)
+        .values({
+          id: id("nws"),
+          ...input,
+          createdAt: ts,
+        })
+        .onConflictDoUpdate({
+          target: [networthSnapshots.date, networthSnapshots.accountId],
+          set: {
+            balance: input.balance,
+            accountType: input.accountType,
+            currency: input.currency,
+          },
+        })
+        .run();
+    }
+  });
+  return inputs.length;
+}
+
+/**
  * Writes one balance row per open account for `date`, replacing that day's rows
  * if the snapshot runs twice — a day has exactly one closing balance.
  */
 export function writeSnapshot(db: Db, date: string = todayISO()): number {
   const open = listAccounts(db);
   if (open.length === 0) return 0;
-  const ts = nowISO();
-  db.transaction(() => {
-    for (const a of open) {
-      db.insert(networthSnapshots)
-        .values({
-          id: id("nws"),
-          date,
-          accountId: a.id,
-          accountType: a.type,
-          balance: a.balance,
-          currency: a.currency,
-          createdAt: ts,
-        })
-        .onConflictDoUpdate({
-          target: [networthSnapshots.date, networthSnapshots.accountId],
-          set: {
-            balance: a.balance,
-            accountType: a.type,
-            currency: a.currency,
-          },
-        })
-        .run();
-    }
-  });
+  writeSnapshots(
+    db,
+    open.map((account) => ({
+      date,
+      accountId: account.id,
+      accountType: account.type,
+      balance: account.balance,
+      currency: account.currency,
+    })),
+  );
   return open.length;
 }
 

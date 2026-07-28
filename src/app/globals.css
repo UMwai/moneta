@@ -1964,6 +1964,13 @@ button {
   line-height: 1.6;
 }
 
+.demo-hint {
+  margin: -10px 0 18px;
+  color: var(--accent-strong);
+  font-size: 10px;
+  line-height: 1.5;
+}
+
 .auth-form {
   display: flex;
   flex-direction: column;

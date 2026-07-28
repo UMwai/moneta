@@ -45,6 +45,18 @@ const emptyData: DashboardData = {
   categories: [],
 };
 
+async function dashboardTransactions() {
+  const pages = await Promise.all(
+    [0, 100, 200].map((offset) =>
+      api.transactions({ limit: 100, offset }),
+    ),
+  );
+  return {
+    ...pages[0],
+    items: pages.flatMap((page) => page.items),
+  };
+}
+
 export default function DashboardPage() {
   const [data, setData] = useState<DashboardData>(emptyData);
   const [loading, setLoading] = useState(true);
@@ -59,7 +71,7 @@ export default function DashboardPage() {
       ["netWorth", api.netWorth()],
       ["insights", api.insights(currentMonth())],
       ["budgets", api.budgets(currentMonth())],
-      ["transactions", api.transactions({ limit: 250, offset: 0 })],
+      ["transactions", dashboardTransactions()],
       ["accounts", api.accounts()],
       ["categories", api.categories()],
     ] as const;

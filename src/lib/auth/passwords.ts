@@ -1,4 +1,9 @@
-import { hash, verify, type Algorithm } from "@node-rs/argon2";
+import {
+  hash,
+  hashSync as argon2HashSync,
+  verify,
+  type Algorithm,
+} from "@node-rs/argon2";
 
 const ARGON2_OPTIONS = {
   // @node-rs/argon2 exposes Algorithm as a const enum, which cannot be
@@ -12,6 +17,11 @@ const ARGON2_OPTIONS = {
 
 export function hashPassword(password: string): Promise<string> {
   return hash(password, ARGON2_OPTIONS);
+}
+
+/** Synchronous variant for startup paths that are synchronous by contract. */
+export function hashPasswordSync(password: string): string {
+  return argon2HashSync(password, ARGON2_OPTIONS);
 }
 
 export async function verifyPassword(
