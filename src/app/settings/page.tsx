@@ -12,6 +12,7 @@ import {
 import type { Account, Connection, ProviderKind } from "@/lib/types";
 import { api, errorMessage } from "@/lib/ui/api";
 import { relativeTime } from "@/lib/ui/format";
+import { loadPlaidLink } from "@/lib/ui/plaid-link";
 import {
   FileSpreadsheet,
   KeyRound,
@@ -36,12 +37,22 @@ const credentialFields: Record<
     type?: "text" | "password";
     placeholder: string;
     multiline?: boolean;
+    options?: Array<{ label: string; value: string }>;
   }>
 > = {
   plaid: [
     { name: "clientId", label: "Client ID", placeholder: "Plaid client ID" },
     { name: "secret", label: "Secret", type: "password", placeholder: "Plaid secret" },
-    { name: "environment", label: "Environment", placeholder: "sandbox" },
+    {
+      name: "env",
+      label: "Environment",
+      placeholder: "sandbox",
+      options: [
+        { label: "Sandbox", value: "sandbox" },
+        { label: "Development", value: "development" },
+        { label: "Production", value: "production" },
+      ],
+    },
   ],
   simplefin: [
     {
@@ -90,6 +101,8 @@ export default function SettingsPage() {
   const [workingId, setWorkingId] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
+  const [plaidWorking, setPlaidWorking] = useState(false);
+  const [plaidError, setPlaidError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     const [connectionResult, accountResult] = await Promise.allSettled([
@@ -119,10 +132,16 @@ export default function SettingsPage() {
     setCredentials({});
     setNotice(null);
     setError(null);
+    setPlaidError(null);
   }
 
   async function createConnection(event: FormEvent) {
     event.preventDefault();
+    if (provider === "plaid") {
+      await connectWithPlaid();
+      return;
+    }
+
     setCreating(true);
     setError(null);
     setNotice(null);
@@ -135,6 +154,88 @@ export default function SettingsPage() {
       setError(errorMessage(createError));
     } finally {
       setCreating(false);
+    }
+  }
+
+  async function connectWithPlaid() {
+    setPlaidWorking(true);
+    setPlaidError(null);
+    setError(null);
+    setNotice(null);
+
+    try {
+      const clientId = credentials.clientId?.trim() ?? "";
+      const secret = credentials.secret?.trim() ?? "";
+      if (Boolean(clientId) !== Boolean(secret)) {
+        throw new Error("Enter both the Plaid client ID and secret, or leave both blank.");
+      }
+
+      // Begin downloading in direct response to the click. When new keys were
+      // entered, their validation and storage run while the SDK arrives.
+      const plaidScript = loadPlaidLink();
+      let Plaid: Awaited<typeof plaidScript>;
+      if (clientId && secret) {
+        const [loadedPlaid, credentialRecord] = await Promise.all([
+          plaidScript,
+          api.createConnection({
+            provider: "plaid",
+            credentials: {
+              clientId,
+              secret,
+              env: credentials.env || "sandbox",
+            },
+          }),
+        ]);
+        Plaid = loadedPlaid;
+        setConnections((current) => [credentialRecord, ...current]);
+        setCredentials({});
+      } else {
+        Plaid = await plaidScript;
+      }
+
+      const { linkToken } = await api.plaidLinkToken();
+
+      let completed = false;
+      let handler: ReturnType<typeof Plaid.create> | null = null;
+      handler = Plaid.create({
+        token: linkToken,
+        onSuccess(publicToken, metadata) {
+          completed = true;
+          void (async () => {
+            try {
+              const connection = await api.exchangePlaidToken({
+                publicToken,
+                institution: metadata.institution ?? undefined,
+              });
+              setNotice(
+                `${connection.institution ?? "Plaid institution"} connected and initial sync completed.`,
+              );
+              await load();
+            } catch (exchangeError) {
+              setPlaidError(errorMessage(exchangeError));
+            } finally {
+              handler?.destroy();
+              setPlaidWorking(false);
+            }
+          })();
+        },
+        onExit(linkError) {
+          if (completed) return;
+          handler?.destroy();
+          setPlaidWorking(false);
+          if (linkError) {
+            setPlaidError(
+              linkError.display_message ||
+                linkError.error_message ||
+                "Plaid Link closed with an error.",
+            );
+          }
+        },
+      });
+      handler.open();
+    } catch (linkError) {
+      setPlaidError(errorMessage(linkError));
+      setPlaidWorking(false);
     }
   }
 
@@ -251,23 +352,46 @@ export default function SettingsPage() {
                   </div>
                   <div className="connection-copy">
                     <div>
-                      <h3>{connection.institution ?? providerLabel(connection.provider)}</h3>
+                      <h3>
+                        {connection.provider === "plaid" &&
+                        !connection.institution &&
+                        !connection.lastSyncAt
+                          ? "Plaid API credentials"
+                          : connection.institution ??
+                            providerLabel(connection.provider)}
+                      </h3>
                       <StatusDot status={connection.status} />
                     </div>
                     <p>
-                      {providerLabel(connection.provider)} · Last sync{" "}
-                      {relativeTime(connection.lastSyncAt)}
+                      {connection.provider === "plaid" &&
+                      !connection.institution &&
+                      !connection.lastSyncAt
+                        ? "Encrypted locally · Ready to connect a bank"
+                        : `${providerLabel(connection.provider)} · Last sync ${relativeTime(connection.lastSyncAt)}`}
                     </p>
                   </div>
                   <div className="connection-actions">
-                    <Button
-                      variant="secondary"
-                      loading={workingId === connection.id}
-                      onClick={() => syncConnection(connection)}
-                    >
-                      <RefreshCw size={14} aria-hidden="true" />
-                      Sync
-                    </Button>
+                    {connection.provider === "plaid" &&
+                    !connection.institution &&
+                    !connection.lastSyncAt ? (
+                      <Button
+                        variant="secondary"
+                        loading={plaidWorking}
+                        onClick={connectWithPlaid}
+                      >
+                        <Link2 size={14} aria-hidden="true" />
+                        Connect
+                      </Button>
+                    ) : (
+                      <Button
+                        variant="secondary"
+                        loading={workingId === connection.id}
+                        onClick={() => syncConnection(connection)}
+                      >
+                        <RefreshCw size={14} aria-hidden="true" />
+                        Sync
+                      </Button>
+                    )}
                     <Button
                       variant="ghost"
                       disabled={workingId === connection.id}
@@ -318,7 +442,25 @@ export default function SettingsPage() {
             {credentialFields[provider].map((field) => (
               <div className="form-field" key={field.name}>
                 <label htmlFor={`credential-${field.name}`}>{field.label}</label>
-                {field.multiline ? (
+                {field.options ? (
+                  <select
+                    id={`credential-${field.name}`}
+                    className="select"
+                    value={credentials[field.name] ?? "sandbox"}
+                    onChange={(event) =>
+                      setCredentials((current) => ({
+                        ...current,
+                        [field.name]: event.target.value,
+                      }))
+                    }
+                  >
+                    {field.options.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                ) : field.multiline ? (
                   <textarea
                     id={`credential-${field.name}`}
                     className="textarea"
@@ -337,7 +479,7 @@ export default function SettingsPage() {
                     id={`credential-${field.name}`}
                     className="input"
                     type={field.type ?? "text"}
-                    required
+                    required={provider !== "plaid"}
                     autoComplete="off"
                     value={credentials[field.name] ?? ""}
                     placeholder={field.placeholder}
@@ -351,12 +493,22 @@ export default function SettingsPage() {
                 )}
               </div>
             ))}
-            <Button type="submit" loading={creating}>
-              Add {providerLabel(provider)}
+            {provider === "plaid" && plaidError ? (
+              <InlineNotice kind="error">{plaidError}</InlineNotice>
+            ) : null}
+            <Button
+              type="submit"
+              loading={provider === "plaid" ? plaidWorking : creating}
+            >
+              {provider === "plaid"
+                ? "Connect with Plaid"
+                : `Add ${providerLabel(provider)}`}
             </Button>
             <p className="credential-note">
               <ShieldCheck size={14} aria-hidden="true" />
-              Credentials never pass through a Moneta cloud service.
+              {provider === "plaid"
+                ? "Enter keys once, or leave them blank to use saved or server environment credentials."
+                : "Credentials never pass through a Moneta cloud service."}
             </p>
           </form>
         </Surface>
