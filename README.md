@@ -34,6 +34,18 @@ pnpm db:migrate
 pnpm dev
 ```
 
+## Try the demo
+
+Start a disposable demo at [http://localhost:3000](http://localhost:3000), then
+sign in with `demo` / `demo-moneta`:
+
+```bash
+docker run --rm -p 3000:3000 -e DEMO=1 -e COOKIE_SECURE=false -e SESSION_SECRET="$(openssl rand -hex 32)" -e APP_ENCRYPTION_KEY="$(openssl rand -hex 32)" ghcr.io/umwai/moneta:edge
+```
+
+`DEMO=1` only seeds an empty database. It never replaces an existing Moneta
+household.
+
 ## Connecting your bank
 
 Moneta ships with no aggregator account — you supply your own credentials in
