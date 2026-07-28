@@ -12,6 +12,7 @@ import type {
   SessionUser,
   Transaction,
 } from "@/lib/types";
+import type { PlaidInstitutionMetadata } from "@/lib/ui/plaid-link";
 
 export class ApiRequestError extends Error {
   status: number;
@@ -160,6 +161,19 @@ export const api = {
   deleteConnection: (id: string) =>
     apiFetch<{ ok: true }>(`/api/connections/${encodeURIComponent(id)}`, {
       method: "DELETE",
+    }),
+  plaidLinkToken: () =>
+    apiFetch<{ linkToken: string }>("/api/plaid/link-token", {
+      method: "POST",
+      body: JSON.stringify({}),
+    }),
+  exchangePlaidToken: (input: {
+    publicToken: string;
+    institution?: PlaidInstitutionMetadata;
+  }) =>
+    apiFetch<Connection>("/api/plaid/exchange", {
+      method: "POST",
+      body: JSON.stringify(input),
     }),
   importCsv: (file: File, accountId: string) => {
     const body = new FormData();

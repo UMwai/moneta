@@ -35,6 +35,7 @@ import {
   createConnection as createConnectionRepo,
   deleteConnection as deleteConnectionRepo,
   getConnection,
+  getCredentialsEnc,
   listConnections as listConnectionsRepo,
 } from "@/lib/domain/repos/connections";
 import { applyImport, type ImportBatch } from "@/lib/server/import";
@@ -76,6 +77,11 @@ export interface TransactionPatch {
   notes?: string | null;
 }
 
+export interface ConnectionCredentialRecord {
+  connection: Connection;
+  encryptedCredentials: string;
+}
+
 export interface Store {
   hasUser(): Promise<boolean>;
   createUser(username: string, passwordHash: string): Promise<StoredUser>;
@@ -108,7 +114,12 @@ export interface Store {
   createConnection(
     provider: ProviderKind,
     encryptedCredentials: string,
+    institution?: string | null,
   ): Promise<Connection>;
+  /** Server-only encrypted records used when one provider credential set is reusable. */
+  listConnectionCredentialRecords(
+    provider: ProviderKind,
+  ): Promise<ConnectionCredentialRecord[]>;
   hasConnection(id: string): Promise<boolean>;
   deleteConnection(id: string): Promise<boolean>;
   /** Pulls from the provider and folds the result into the ledger. */
@@ -238,11 +249,27 @@ export class DrizzleStore implements Store {
   async createConnection(
     provider: ProviderKind,
     encryptedCredentials: string,
+    institution: string | null = null,
   ): Promise<Connection> {
     return createConnectionRepo(this.db(), {
       provider,
+      institution,
       credentialsEnc: encryptedCredentials,
     });
+  }
+
+  async listConnectionCredentialRecords(
+    provider: ProviderKind,
+  ): Promise<ConnectionCredentialRecord[]> {
+    const db = this.db();
+    return listConnectionsRepo(db)
+      .filter((connection) => connection.provider === provider)
+      .flatMap((connection) => {
+        const encryptedCredentials = getCredentialsEnc(db, connection.id);
+        return encryptedCredentials
+          ? [{ connection, encryptedCredentials }]
+          : [];
+      });
   }
 
   async hasConnection(id: string): Promise<boolean> {
@@ -519,11 +546,12 @@ export class InMemoryStore implements Store {
   async createConnection(
     provider: ProviderKind,
     encryptedCredentials: string,
+    institution: string | null = null,
   ): Promise<Connection> {
     const connection = {
       id: randomUUID(),
       provider,
-      institution: null,
+      institution,
       status: "ok" as const,
       lastSyncAt: null,
       createdAt: nowIso(),
@@ -531,6 +559,19 @@ export class InMemoryStore implements Store {
     this.connections.push(connection);
     this.encryptedCredentials.set(connection.id, encryptedCredentials);
     return clone(connection);
+  }
+
+  async listConnectionCredentialRecords(
+    provider: ProviderKind,
+  ): Promise<ConnectionCredentialRecord[]> {
+    return this.connections
+      .filter((connection) => connection.provider === provider)
+      .flatMap((connection) => {
+        const encryptedCredentials = this.encryptedCredentials.get(connection.id);
+        return encryptedCredentials
+          ? [{ connection: clone(connection), encryptedCredentials }]
+          : [];
+      });
   }
 
   async hasConnection(id: string): Promise<boolean> {
